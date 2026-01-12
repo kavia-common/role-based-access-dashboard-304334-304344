@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client';
 
 const STORAGE_KEY = 'rbac_auth_v1';
@@ -40,8 +41,22 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const navigate = useNavigate();
+
   const isAuthenticated = Boolean(token && user);
   const role = user?.role || user?.Role || user?.roles?.[0] || null;
+
+  const forceLogout = useCallback(
+    (message = 'Your session expired. Please login again.') => {
+      setToken(null);
+      setUser(null);
+      storeAuth({ token: null, user: null });
+      setError(message);
+      // AuthProvider is mounted under BrowserRouter, so navigation is safe here.
+      navigate('/login', { replace: true });
+    },
+    [navigate]
+  );
 
   /**
    * Hydrate user on load if token exists.
@@ -71,10 +86,7 @@ export function AuthProvider({ children }) {
         }
       } catch (e) {
         if (!cancelled) {
-          setToken(null);
-          setUser(null);
-          storeAuth({ token: null, user: null });
-          setError(e?.message || 'Session expired. Please login again.');
+          forceLogout(e?.message || 'Session expired. Please login again.');
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -85,7 +97,7 @@ export function AuthProvider({ children }) {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, forceLogout]);
 
   const login = useCallback(async ({ email, password }) => {
     setError(null);
@@ -119,6 +131,16 @@ export function AuthProvider({ children }) {
       storeAuth({ token: null, user: null });
     }
   }, [token]);
+
+  /**
+   * Global 401 handling:
+   * Any API call can trigger an auth:unauthorized event, which will force-logout and redirect.
+   */
+  useEffect(() => {
+    const handler = () => forceLogout();
+    window.addEventListener('auth:unauthorized', handler);
+    return () => window.removeEventListener('auth:unauthorized', handler);
+  }, [forceLogout]);
 
   const value = useMemo(
     () => ({

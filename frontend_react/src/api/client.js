@@ -3,9 +3,26 @@ const DEFAULT_API_BASE_URL = 'http://localhost:3001';
 /**
  * Resolve API base URL.
  * CRA env vars must start with REACT_APP_.
+ *
+ * Supports a couple of aliases to make multi-container deployments easier:
+ * - REACT_APP_API_BASE_URL (preferred)
+ * - REACT_APP_BACKEND_URL  (alias)
  */
 function getApiBaseUrl() {
-  return (process.env.REACT_APP_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, '');
+  const candidate =
+    process.env.REACT_APP_API_BASE_URL ||
+    process.env.REACT_APP_BACKEND_URL ||
+    DEFAULT_API_BASE_URL;
+
+  return String(candidate).replace(/\/+$/, '');
+}
+
+/**
+ * Notify the app that the current auth session is no longer valid.
+ * This decouples the low-level fetch client from React/router.
+ */
+function emitUnauthorized() {
+  window.dispatchEvent(new Event('auth:unauthorized'));
 }
 
 /**
@@ -55,6 +72,8 @@ async function request(path, { method = 'GET', token = null, body = null } = {})
   });
 
   if (!res.ok) {
+    // Global auth handling: if token is expired/invalid, trigger logout flow.
+    if (res.status === 401) emitUnauthorized();
     throw await toApiError(res);
   }
 
